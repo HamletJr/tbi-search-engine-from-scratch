@@ -4,6 +4,7 @@ import contextlib
 import heapq
 import time
 import math
+import nltk
 
 from index import InvertedIndexReader, InvertedIndexWriter
 from util import IdMap, sorted_merge_posts_and_tfs
@@ -33,6 +34,42 @@ class BSBIIndex:
 
         # Untuk menyimpan nama-nama file dari semua intermediate inverted index
         self.intermediate_indices = []
+
+        self.stemmer = nltk.stem.PorterStemmer()
+        self.stopwords = set(nltk.corpus.stopwords.words('english'))
+    
+    def _preprocess_text(self, text, doc_id):
+        """
+        Melakukan preprocessing terhadap text, termasuk case folding, stopword removal, dan stemming.
+
+        Parameters
+        ----------
+        text: str
+            Text yang akan diproses
+        doc_id: int
+            ID dari dokumen yang sedang diproses
+
+        Returns
+        -------
+        List[(int, int)]
+            List yang mengandung pasangan (termID, docID) setelah preprocessing
+            
+        """
+        text = text.lower()
+
+        tokens = nltk.word_tokenize(text)
+        processed_tokens = []
+        for token in tokens:
+            processed_token = self._preprocess_word(token)
+            if processed_token is not None:
+                term_id = self.term_id_map[processed_token]
+                processed_tokens.append((term_id, doc_id))
+        return processed_tokens
+        
+    def _preprocess_word(self, word):
+        if word not in self.stopwords and word.isalnum():
+            return self.stemmer.stem(word)
+        return None
 
     def save(self):
         """Menyimpan doc_id_map and term_id_map ke output directory via pickle"""
@@ -88,8 +125,8 @@ class BSBIIndex:
         for filename in next(os.walk(dir))[2]:
             docname = dir + "/" + filename
             with open(docname, "r", encoding = "utf8", errors = "surrogateescape") as f:
-                for token in f.read().split():
-                    td_pairs.append((self.term_id_map[token], self.doc_id_map[docname]))
+                text = f.read()
+                td_pairs.extend(self._preprocess_text(text, self.doc_id_map[docname]))
 
         return td_pairs
 
@@ -164,7 +201,7 @@ class BSBIIndex:
                 curr, postings, tf_list = t, postings_, tf_list_
         merged_index.append(curr, postings, tf_list)
 
-    def retrieve_tfidf(self, query, k = 10):
+    def retrieve_tfidf(self, query: str, k = 10):
         """
         Melakukan Ranked Retrieval dengan skema TaaT (Term-at-a-Time).
         Method akan mengembalikan top-K retrieval results.
@@ -202,8 +239,10 @@ class BSBIIndex:
         """
         if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
             self.load()
-
-        terms = [self.term_id_map[word] for word in query.split()]
+        
+        query = query.lower()
+        tokens = nltk.word_tokenize(query.lower())
+        terms = [self.term_id_map[self._preprocess_word(word)] for word in tokens if self._preprocess_word(word) is not None]
         with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
 
             scores = {}
@@ -252,6 +291,8 @@ class BSBIIndex:
 
 
 if __name__ == "__main__":
+    nltk.download('stopwords', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
 
     BSBI_instance = BSBIIndex(data_dir = 'collection', \
                               postings_encoding = VBEPostings, \
