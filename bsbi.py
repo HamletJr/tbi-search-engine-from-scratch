@@ -24,11 +24,13 @@ class BSBIIndex:
                     VBEPostings, dsb.
     index_name(str): Nama dari file yang berisi inverted index
     """
-    def __init__(self, data_dir, output_dir, postings_encoding, index_name = "main_index"):
+    def __init__(self, data_dir, output_dir, postings_encoding, temp_dir = "tmp", index_name = "main_index"):
         self.term_id_map = IdMap()
         self.doc_id_map = IdMap()
         self.data_dir = data_dir
         self.output_dir = output_dir
+        self.temp_dir = temp_dir
+
         self.index_name = index_name
         self.postings_encoding = postings_encoding
 
@@ -339,7 +341,7 @@ class BSBIIndex:
             td_pairs = self.parse_block(block_dir_relative)
             index_id = 'intermediate_index_'+block_dir_relative
             self.intermediate_indices.append(index_id)
-            with InvertedIndexWriter(index_id, self.postings_encoding, directory = self.output_dir) as index:
+            with InvertedIndexWriter(index_id, self.postings_encoding, directory = self.temp_dir) as index:
                 self.invert_write(td_pairs, index)
                 td_pairs = None
     
@@ -347,7 +349,7 @@ class BSBIIndex:
 
         with InvertedIndexWriter(self.index_name, self.postings_encoding, directory = self.output_dir) as merged_index:
             with contextlib.ExitStack() as stack:
-                indices = [stack.enter_context(InvertedIndexReader(index_id, self.postings_encoding, directory=self.output_dir))
+                indices = [stack.enter_context(InvertedIndexReader(index_id, self.postings_encoding, directory=self.temp_dir))
                                for index_id in self.intermediate_indices]
                 self.merge(indices, merged_index)
             
