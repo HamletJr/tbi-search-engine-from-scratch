@@ -66,6 +66,31 @@ class BSBIIndex:
                 processed_tokens.append((term_id, doc_id))
         return processed_tokens
         
+    def _preprocess_query(self, query):
+        """
+        Melakukan preprocessing terhadap query, termasuk case folding, stopword removal, dan stemming.
+
+        Parameters
+        ----------
+        query: str
+            Query yang akan diproses
+
+        Returns
+        -------
+        List[int]
+            List yang mengandung termID setelah preprocessing
+            
+        """
+        query = query.lower()
+        tokens = nltk.word_tokenize(query)
+        processed_terms = []
+        for token in tokens:
+            processed_token = self._preprocess_word(token)
+            if processed_token is not None and processed_token in self.term_id_map:
+                term_id = self.term_id_map[processed_token]
+                processed_terms.append(term_id)
+        return processed_terms
+    
     def _preprocess_word(self, word):
         if word not in self.stopwords and word.isalnum():
             return self.stemmer.stem(word)
@@ -240,9 +265,8 @@ class BSBIIndex:
         if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
             self.load()
         
-        query = query.lower()
-        tokens = nltk.word_tokenize(query.lower())
-        terms = [self.term_id_map[self._preprocess_word(word)] for word in tokens if self._preprocess_word(word) is not None]
+        terms = self._preprocess_query(query)
+        
         with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
 
             scores = {}
@@ -257,6 +281,44 @@ class BSBIIndex:
                             scores[doc_id] = 0
                         if tf > 0:
                             scores[doc_id] += math.log(N / df) * (1 + math.log(tf))
+
+            # Top-K
+            docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
+            return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
+
+    def retrieve_bm25(self, query, k=10, k1=1.6, b=0.75):
+        """
+        Melakukan Boolean Retrieval untuk retrieve-k dokumen teratas
+        berdasarkan nilai skor BM25.
+        """
+        if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
+            self.load()
+        
+        terms = self._preprocess_query(query)
+
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+            scores = {}
+            N = len(merged_index.doc_length)
+            
+            # Mendapatkan precomputed average document length (dengan fallback jika index dibuat sebelum perubahan)
+            avgdl = getattr(merged_index, 'avg_doc_length', 0)
+            if avgdl == 0:
+                avgdl = sum(merged_index.doc_length.values()) / N if N > 0 else 1.0
+
+            for term in terms:
+                if term in merged_index.postings_dict:
+                    df = merged_index.postings_dict[term][1]
+                    postings, tf_list = merged_index.get_postings_list(term)
+                    
+                    idf = math.log((N - df + 0.5) / (df + 0.5) + 1)  # IDF dengan smoothing untuk BM25
+                    for i in range(len(postings)):
+                        doc_id, tf = postings[i], tf_list[i]
+                        if doc_id not in scores:
+                            scores[doc_id] = 0.0
+                        
+                        dl = merged_index.doc_length[doc_id]
+                        score_component = idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgdl))))
+                        scores[doc_id] += score_component
 
             # Top-K
             docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
@@ -288,6 +350,9 @@ class BSBIIndex:
                 indices = [stack.enter_context(InvertedIndexReader(index_id, self.postings_encoding, directory=self.output_dir))
                                for index_id in self.intermediate_indices]
                 self.merge(indices, merged_index)
+            
+            if len(merged_index.doc_length) > 0:
+                merged_index.avg_doc_length = sum(merged_index.doc_length.values()) / len(merged_index.doc_length)
 
 
 if __name__ == "__main__":

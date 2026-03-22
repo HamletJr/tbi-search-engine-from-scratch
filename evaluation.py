@@ -126,7 +126,7 @@ def load_qrels(qrel_file = "qrels.txt", max_q_id = 30, max_doc_id = 1033):
 
 ######## >>>>> EVALUASI !
 
-def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp"):
+def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scoring_method = "tfidf"):
   """ 
     loop ke semua 30 query, hitung score di setiap query,
     lalu hitung MEAN SCORE over those 30 queries.
@@ -146,9 +146,15 @@ def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp"):
       # HATI-HATI, doc id saat indexing bisa jadi berbeda dengan doc id
       # yang tertera di qrels
       ranking = []
-      for (score, doc) in BSBI_instance.retrieve_tfidf(query, k = k):
+      if scoring_method == "tf-idf":
+        for (score, doc) in BSBI_instance.retrieve_tfidf(query, k = k):
+            did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
+            ranking.append(qrels[qid][did])
+      elif scoring_method == "bm25":
+        for (score, doc) in BSBI_instance.retrieve_bm25(query, k = k):
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
+
       if eval_metric == "rbp":
         eval_scores.append(rbp(ranking))
       elif eval_metric == "dcg":
@@ -158,12 +164,14 @@ def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp"):
       elif eval_metric == "ap":
         eval_scores.append(ap(ranking))
 
-  print("Hasil evaluasi TF-IDF terhadap 30 queries")
+  print(f"Hasil evaluasi {scoring_method.upper()} terhadap 30 queries")
   print(f"{eval_metric.upper()} score =", sum(eval_scores) / len(eval_scores))
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Evaluasi IR system')
   parser.add_argument('--eval', action='store', help='Pilih metric evaluasi: rbp, dcg, ndcg, ap', default='rbp')
+  parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25'], default='tf-idf',
+                      help='Pilih metode scoring (tf-idf atau bm25)')
 
   qrels = load_qrels()
 
@@ -171,4 +179,4 @@ if __name__ == '__main__':
   assert qrels["Q1"][300] == 0, "qrels salah"
 
   args = parser.parse_args()
-  eval(qrels, eval_metric = args.eval)
+  eval(qrels, eval_metric = args.eval, scoring_method = args.scoring)
