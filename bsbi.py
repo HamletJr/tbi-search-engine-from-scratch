@@ -8,8 +8,11 @@ import nltk
 
 from index import InvertedIndexReader, InvertedIndexWriter
 from util import IdMap, sorted_merge_posts_and_tfs
-from compression import StandardPostings, VBEPostings
+from compression import StandardPostings, VBEPostings, OptPForDeltaPostings, BP128Postings
 from tqdm import tqdm
+
+import argparse
+import shutil
 
 class BSBIIndex:
     """
@@ -361,7 +364,50 @@ if __name__ == "__main__":
     nltk.download('stopwords', quiet=True)
     nltk.download('punkt_tab', quiet=True)
 
-    BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                              postings_encoding = VBEPostings, \
-                              output_dir = 'index')
-    BSBI_instance.index() # memulai indexing!
+    parser = argparse.ArgumentParser(description='BSBI Indexing')
+    parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
+    parser.add_argument('--compare', action='store_true', help='Bandingkan semua metode compression')
+
+    args = parser.parse_args()
+
+    if args.compare:
+        compression_methods = {
+            'Standard': StandardPostings,
+            'VBE': VBEPostings,
+            'OptPForDelta': OptPForDeltaPostings,
+            'BP128': BP128Postings
+        }
+        size_results = {}
+        print("Membuat direktori sementara untuk menyimpan index di tmp/tmp_index...")
+        os.makedirs('tmp/tmp_index', exist_ok=True)
+        for name, encoding in compression_methods.items():
+            print(f"Indexing dengan metode {name}...")
+            BSBI_instance = BSBIIndex(data_dir='collection', postings_encoding=encoding, output_dir='tmp/tmp_index')
+            BSBI_instance.index()
+            size_results[name] = os.path.getsize(os.path.join('tmp/tmp_index', 'main_index.index'))
+            print()
+        shutil.rmtree('tmp/tmp_index')
+        print("\nHasil ukuran index untuk setiap metode compression:")
+        for name, size in size_results.items():
+            print(f"{name}: {size} bytes")
+            
+    else:
+        match args.compression:
+            case 'standard':
+                BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = StandardPostings, \
+                                        output_dir = 'index')
+            case 'vbe':
+                BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = VBEPostings, \
+                                        output_dir = 'index')
+            case 'optpfor':
+                BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = OptPForDeltaPostings, \
+                                        output_dir = 'index')
+            case 'bp128':
+                BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = BP128Postings, \
+                                        output_dir = 'index')
+                
+        BSBI_instance.index() # memulai indexing!
