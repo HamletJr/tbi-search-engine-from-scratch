@@ -197,7 +197,7 @@ class BSBIIndex:
             assoc_tf = [term_tf[term_id][doc_id] for doc_id in sorted_doc_id]
             index.append(term_id, sorted_doc_id, assoc_tf)
 
-    def merge(self, indices, merged_index):
+    def merge(self, indices, merged_index, N=None, avg_doc_length=None, merged_doc_length=None):
         """
         Lakukan merging ke semua intermediate inverted indices menjadi
         sebuah single index.
@@ -217,6 +217,20 @@ class BSBIIndex:
             Instance InvertedIndexWriter object yang merupakan hasil merging dari
             semua intermediate InvertedIndexWriter objects.
         """
+        # Fungsi untuk menghitung nilai BM25 maksimum untuk sebuah term, dengan diberikan postings list dan tf
+        def find_max_bm25(postings, tf_list, k1 = 1.6, b = 0.75):
+            if N is None or avg_doc_length is None or merged_doc_length is None:
+                return
+            df = len(postings)
+            idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
+            max_score = 0.0
+            for doc_id, tf in zip(postings, tf_list):
+                dl = merged_doc_length[doc_id]
+                score = idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avg_doc_length))))
+                if score > max_score:
+                    max_score = score
+            return max_score
+
         # kode berikut mengasumsikan minimal ada 1 term
         merged_iter = heapq.merge(*indices, key = lambda x: x[0])
         curr, postings, tf_list = next(merged_iter) # first item
@@ -227,8 +241,10 @@ class BSBIIndex:
                 postings = [doc_id for (doc_id, _) in zip_p_tf]
                 tf_list = [tf for (_, tf) in zip_p_tf]
             else:
+                merged_index.term_max_score[curr] = find_max_bm25(postings, tf_list)
                 merged_index.append(curr, postings, tf_list)
                 curr, postings, tf_list = t, postings_, tf_list_
+        merged_index.term_max_score[curr] = find_max_bm25(postings, tf_list)
         merged_index.append(curr, postings, tf_list)
 
     def retrieve_tfidf(self, query: str, k = 10):
@@ -273,6 +289,7 @@ class BSBIIndex:
         terms = self._preprocess_query(query)
         
         with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+            docs_evaluated = 0
 
             scores = {}
             for term in terms:
@@ -281,6 +298,7 @@ class BSBIIndex:
                     N = len(merged_index.doc_length)
                     postings, tf_list = merged_index.get_postings_list(term)
                     for i in range(len(postings)):
+                        docs_evaluated += 1
                         doc_id, tf = postings[i], tf_list[i]
                         if doc_id not in scores:
                             scores[doc_id] = 0
@@ -289,9 +307,9 @@ class BSBIIndex:
 
             # Top-K
             docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
-            return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
+            return sorted(docs, key = lambda x: (-x[0], x[1]))[:k]
 
-    def retrieve_bm25(self, query, k=10, k1=1.6, b=0.75):
+    def retrieve_bm25(self, query, k=10, k1=1.6, b=0.75, verbose=False):
         """
         Melakukan Boolean Retrieval untuk retrieve-k dokumen teratas
         berdasarkan nilai skor BM25.
@@ -302,6 +320,8 @@ class BSBIIndex:
         terms = self._preprocess_query(query)
 
         with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+            docs_evaluated = 0
+
             scores = {}
             N = len(merged_index.doc_length)
             
@@ -317,6 +337,7 @@ class BSBIIndex:
                     
                     idf = math.log((N - df + 0.5) / (df + 0.5) + 1)  # IDF dengan smoothing untuk BM25
                     for i in range(len(postings)):
+                        docs_evaluated += 1
                         doc_id, tf = postings[i], tf_list[i]
                         if doc_id not in scores:
                             scores[doc_id] = 0.0
@@ -325,9 +346,129 @@ class BSBIIndex:
                         score_component = idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgdl))))
                         scores[doc_id] += score_component
 
+            if verbose:
+                print("Jumlah dokumen yang dievaluasi (BM25):", docs_evaluated)
+
             # Top-K
             docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
-            return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
+            return sorted(docs, key = lambda x: (-x[0], x[1]))[:k]
+
+    def retrieve_bm25_wand(self, query, k=10, k1=1.6, b=0.75, verbose=False):
+        """
+        Melakukan Boolean Retrieval untuk retrieve-k dokumen teratas
+        berdasarkan nilai skor BM25 menggunakan optimasi WAND (Weak AND).
+        """
+        if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
+            self.load()
+        
+        terms = self._preprocess_query(query)
+
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+            docs_evaluated = 0
+
+            N = len(merged_index.doc_length)
+            avgdl = getattr(merged_index, 'avg_doc_length', 0)
+            if avgdl == 0:
+                avgdl = sum(merged_index.doc_length.values()) / N if N > 0 else 1.0
+
+            # Menyusun struktur data untuk DaaT dengan WAND
+            term_iters = []
+            for term in terms:
+                if term in merged_index.postings_dict:
+                    df = merged_index.postings_dict[term][1]
+                    postings, tf_list = merged_index.get_postings_list(term)
+                    max_score = getattr(merged_index, 'term_max_score', {}).get(term, 0)
+                    idf = math.log((N - df + 0.5) / (df + 0.5) + 1) # IDF dengan smoothing untuk BM25
+                    
+                    if max_score == 0:
+                        max_score = idf * (k1 + 1)
+                        
+                    term_iters.append({
+                        'term': term,
+                        'postings': postings,
+                        'tf_list': tf_list,
+                        'idx': 0,
+                        'max_score': max_score,
+                        'idf': idf,
+                        'len': len(postings)
+                    })
+            
+            top_k_heap = []
+            threshold = 0.0
+            
+            while True:
+                # Ambil iterator yang masih menunjuk ke dokumen valid
+                term_iters = [t for t in term_iters if t['idx'] < t['len']]
+                if not term_iters:
+                    break
+                
+                # Sort iterator berdasarkan doc_id secara non-decreasing
+                term_iters.sort(key=lambda x: x['postings'][x['idx']])
+                
+                # Tentukan pivot term dengan mengakumulasi max_score
+                upper_bound = 0.0
+                pivot_idx = -1
+                for i, t in enumerate(term_iters):
+                    upper_bound += t['max_score']
+                    if upper_bound > threshold:
+                        pivot_idx = i
+                        break
+                
+                # Kalau tidak ada term yang bisa melebihi threshold, berarti sudah tidak ada lagi kandidat valid
+                if pivot_idx == -1:
+                    break
+
+                # Tentukan dokumen yang menjadi pivot 
+                pivot_doc_id = term_iters[pivot_idx]['postings'][term_iters[pivot_idx]['idx']]
+                
+                # Periksa apakah term pertama menunjuk ke dokumen yang sama dengan pivot
+                if term_iters[0]['postings'][term_iters[0]['idx']] == pivot_doc_id:
+                    # Kalau sama, berarti sukses, semua term menunjuk ke dokumen pivot. Lakukan evaluasi
+                    docs_evaluated += 1
+                    doc_id = pivot_doc_id
+                    
+                    score = 0.0
+                    dl = merged_index.doc_length[doc_id]
+                    doc_K = k1 * (1 - b + b * (dl / avgdl))
+                    
+                    # Modifikasi: hitung score BM25 sekaligus majukan semua iterator yang menunjuk ke doc_id pivot
+                    for t in term_iters:
+                        if t['postings'][t['idx']] == doc_id:
+                            tf = t['tf_list'][t['idx']]
+                            score += t['idf'] * ((tf * (k1 + 1)) / (tf + doc_K))
+                            t['idx'] += 1
+                            
+                    # Periksa apakah masih ada tempat kosong di top-k heap
+                    if len(top_k_heap) < k:
+                        # Kalau masih ada, tidak perlu bandingkan, langsung aja tambahkan
+                        heapq.heappush(top_k_heap, (score, doc_id))
+                        # Update threshold kalau heap sudah penuh; ambil score terkecil di heap sebagai threshold
+                        if len(top_k_heap) == k:
+                            threshold = top_k_heap[0][0]
+                    else:
+                        # Kalau sudah penuh, harus bandingkan dengan threshold dulu
+                        if score > threshold:
+                            heapq.heappushpop(top_k_heap, (score, doc_id))
+                            threshold = top_k_heap[0][0]
+                else:
+                    # Pivot belum memiliki mass yang cukup, majukan term sebelumnya.
+                    # Modifikasi: karena term_iters sudah diurutkan berdasarkan doc_id,
+                    # langsung aja majukan semua iterator sebelumnya
+                    target_doc_id = pivot_doc_id
+                    for term_idx in range(pivot_idx):
+                        idx = term_iters[term_idx]['idx']
+                        postings = term_iters[term_idx]['postings']
+                        
+                        while idx < term_iters[term_idx]['len'] and postings[idx] < target_doc_id:
+                            idx += 1
+                        term_iters[term_idx]['idx'] = idx
+            
+            if verbose:
+                print("Jumlah dokumen yang dievaluasi (BM25-WAND):", docs_evaluated)
+
+            # Top-K
+            docs = [(score, self.doc_id_map[doc_id]) for (score, doc_id) in top_k_heap]
+            return sorted(docs, key = lambda x: (-x[0], x[1]))[:k]
 
     def index(self):
         """
@@ -354,11 +495,33 @@ class BSBIIndex:
             with contextlib.ExitStack() as stack:
                 indices = [stack.enter_context(InvertedIndexReader(index_id, self.postings_encoding, directory=self.temp_dir))
                                for index_id in self.intermediate_indices]
-                self.merge(indices, merged_index)
-            
-            if len(merged_index.doc_length) > 0:
-                merged_index.avg_doc_length = sum(merged_index.doc_length.values()) / len(merged_index.doc_length)
+                
+                # Untuk WAND, kita perlu menghitung skor maksimum BM25 pada setiap term. Sebenarnya
+                # bisa juga diaproksimasi dengan term frequency agar lebih cepat, tetapi dengan 
+                # menghitung nilai BM25 yang eksak, kita akan mendapatkan upper bound yang lebih ketat, 
+                # sehingga akan membantu mempercepat proses searching dengan lebih banyak skipping.
+                # Menurut saya tradeoff ini worth it karena indexing sangat jarang dilakukan sehingga 
+                # kita bisa mengorbankan efisiensi waktu di sini untuk mempercepat proses query nanti yang 
+                # akan jauh lebih sering dilakukan.
 
+                # Proses komputasi dilakukan pada saat merging agar bisa dilakukan dalam "single pass"
+                # walaupun mungkin agak boros dan redundan karena jadinya doc length dihitung dua kali, 
+                # sekali di awal dan sekali lagi pada saat appending
+                merged_doc_length = {}
+                for idx in indices:
+                    for doc_id, length in idx.doc_length.items():
+                        if doc_id not in merged_doc_length:
+                            merged_doc_length[doc_id] = 0
+                        merged_doc_length[doc_id] += length
+                
+                if len(merged_doc_length) > 0:
+                    merged_index.avg_doc_length = sum(merged_doc_length.values()) / len(merged_doc_length)
+                
+                # Dengan pendekatan ini, method merge perlu mengetahui statistik corpus di awal, sehingga
+                # perlu dipassing informasi jumlah docs, rata-rata panjang docs, dan panjang semua docs
+                N = len(merged_doc_length)
+                self.merge(indices, merged_index, 
+                           N=N, avg_doc_length=merged_index.avg_doc_length, merged_doc_length=merged_doc_length)
 
 if __name__ == "__main__":
     nltk.download('stopwords', quiet=True)

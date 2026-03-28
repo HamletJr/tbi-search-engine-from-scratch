@@ -59,6 +59,7 @@ class InvertedIndex:
                                 # Ini nantinya akan berguna untuk normalisasi Score terhadap panjang
                                 # dokumen saat menghitung score dengan TF-IDF atau BM25
         self.avg_doc_length = 0 # Rata-rata panjang dokumen, berguna untuk menghitung BM25 score
+        self.term_max_score = {} # Menyimpan nilai max BM25 score untuk setiap term
 
     def __enter__(self):
         """
@@ -88,8 +89,13 @@ class InvertedIndex:
             metadata = pickle.load(f)
             if len(metadata) == 3:
                 self.postings_dict, self.terms, self.doc_length = metadata
-            else:
+                self.avg_doc_length = 0
+                self.term_max_score = {}
+            elif len(metadata) == 4:
                 self.postings_dict, self.terms, self.doc_length, self.avg_doc_length = metadata
+                self.term_max_score = {}
+            else:
+                self.postings_dict, self.terms, self.doc_length, self.avg_doc_length, self.term_max_score = metadata
             self.term_iter = self.terms.__iter__()
 
         return self
@@ -101,7 +107,7 @@ class InvertedIndex:
 
         # Menyimpan metadata (postings dict dan terms) ke file metadata dengan bantuan pickle
         with open(self.metadata_file_path, 'wb') as f:
-            pickle.dump([self.postings_dict, self.terms, self.doc_length, self.avg_doc_length], f)
+            pickle.dump([self.postings_dict, self.terms, self.doc_length, self.avg_doc_length, self.term_max_score], f)
 
 
 class InvertedIndexReader(InvertedIndex):
