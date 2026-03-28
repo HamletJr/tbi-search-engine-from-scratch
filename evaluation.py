@@ -154,6 +154,10 @@ def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scori
         for (score, doc) in BSBI_instance.retrieve_bm25(query, k = k):
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
+      elif scoring_method == "bm25-wand":
+        for (score, doc) in BSBI_instance.retrieve_bm25_wand(query, k = k):
+          did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
+          ranking.append(qrels[qid][did])
 
       if eval_metric == "rbp":
         eval_scores.append(rbp(ranking))
@@ -170,8 +174,8 @@ def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scori
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Evaluasi IR system')
   parser.add_argument('--eval', action='store', help='Pilih metric evaluasi: rbp, dcg, ndcg, ap', default='rbp')
-  parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25'], default='tf-idf',
-                      help='Pilih metode scoring (tf-idf atau bm25)')
+  parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand'], default='tf-idf',
+                      help='Pilih metode scoring (tf-idf, bm25, atau bm25-wand)')
 
   qrels = load_qrels()
 
