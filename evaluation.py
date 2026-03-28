@@ -2,7 +2,7 @@ import re
 import math
 import argparse
 from bsbi import BSBIIndex
-from compression import VBEPostings
+from compression import StandardPostings, VBEPostings, OptPForDeltaPostings, BP128Postings
 
 ######## >>>>> sebuah IR metric: RBP p = 0.8
 
@@ -126,16 +126,12 @@ def load_qrels(qrel_file = "qrels.txt", max_q_id = 30, max_doc_id = 1033):
 
 ######## >>>>> EVALUASI !
 
-def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scoring_method = "tfidf"):
+def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scoring_method = "tfidf", BSBI_instance = None):
   """ 
     loop ke semua 30 query, hitung score di setiap query,
     lalu hitung MEAN SCORE over those 30 queries.
     untuk setiap query, kembalikan top-1000 documents
   """
-  BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                          postings_encoding = VBEPostings, \
-                          output_dir = 'index')
-
   with open(query_file) as file:
     eval_scores = []
     for qline in file:
@@ -176,11 +172,30 @@ if __name__ == '__main__':
   parser.add_argument('--eval', action='store', help='Pilih metric evaluasi: rbp, dcg, ndcg, ap', default='rbp')
   parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand'], default='tf-idf',
                       help='Pilih metode scoring (tf-idf, bm25, atau bm25-wand)')
+  parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
+  args = parser.parse_args()
 
   qrels = load_qrels()
 
   assert qrels["Q1"][166] == 1, "qrels salah"
   assert qrels["Q1"][300] == 0, "qrels salah"
 
-  args = parser.parse_args()
-  eval(qrels, eval_metric = args.eval, scoring_method = args.scoring)
+  match args.compression:
+    case 'standard':
+        BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                postings_encoding = StandardPostings, \
+                                output_dir = 'index')
+    case 'vbe':
+        BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                postings_encoding = VBEPostings, \
+                                output_dir = 'index')
+    case 'optpfor':
+        BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                postings_encoding = OptPForDeltaPostings, \
+                                output_dir = 'index')
+    case 'bp128':
+        BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                postings_encoding = BP128Postings, \
+                                output_dir = 'index')
+
+  eval(qrels, eval_metric = args.eval, scoring_method = args.scoring, BSBI_instance = BSBI_instance)

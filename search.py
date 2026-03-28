@@ -1,21 +1,36 @@
 import argparse
 import time
 from bsbi import BSBIIndex
-from compression import VBEPostings
+from compression import StandardPostings, VBEPostings, OptPForDeltaPostings, BP128Postings
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Retrieve dokumen menggunakan TF-IDF atau BM25.')
     parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand'], default='tf-idf',
                         help='Pilih metode scoring (tf-idf, bm25, atau bm25-wand)')
     parser.add_argument('--verbose', action='store_true', help='Tampilkan informasi jumlah dokumen yang dievaluasi dan waktu proses retrieval')
+    parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
     args = parser.parse_args()
 
     # sebelumnya sudah dilakukan indexing
     # BSBIIndex hanya sebagai abstraksi untuk index tersebut
-    BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                              postings_encoding = VBEPostings, \
-                              output_dir = 'index')
-
+    match args.compression:
+        case 'standard':
+            BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                    postings_encoding = StandardPostings, \
+                                    output_dir = 'index')
+        case 'vbe':
+            BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                    postings_encoding = VBEPostings, \
+                                    output_dir = 'index')
+        case 'optpfor':
+            BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                    postings_encoding = OptPForDeltaPostings, \
+                                    output_dir = 'index')
+        case 'bp128':
+            BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                                    postings_encoding = BP128Postings, \
+                                    output_dir = 'index')
+            
     queries = ["alkylated with radioactive iodoacetate", \
                "psychodrama for disturbed children", \
                "lipid metabolism in toxemia and normal pregnancy"]
