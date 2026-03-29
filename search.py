@@ -1,6 +1,7 @@
 import argparse
 import time
 from bsbi import BSBIIndex
+from spimi import SPIMIIndex
 from compression import StandardPostings, VBEPostings, OptPForDeltaPostings, BP128Postings
 
 if __name__ == '__main__':
@@ -9,27 +10,47 @@ if __name__ == '__main__':
                         help='Pilih metode scoring (tf-idf, bm25, atau bm25-wand)')
     parser.add_argument('--verbose', action='store_true', help='Tampilkan informasi jumlah dokumen yang dievaluasi dan waktu proses retrieval')
     parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
+    parser.add_argument('--spimi', action='store_true', help='Gunakan indexing SPIMI untuk retrieval')
     args = parser.parse_args()
 
     # sebelumnya sudah dilakukan indexing
     # BSBIIndex hanya sebagai abstraksi untuk index tersebut
-    match args.compression:
-        case 'standard':
-            BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                    postings_encoding = StandardPostings, \
-                                    output_dir = 'index')
-        case 'vbe':
-            BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                    postings_encoding = VBEPostings, \
-                                    output_dir = 'index')
-        case 'optpfor':
-            BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                    postings_encoding = OptPForDeltaPostings, \
-                                    output_dir = 'index')
-        case 'bp128':
-            BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                    postings_encoding = BP128Postings, \
-                                    output_dir = 'index')
+    if args.spimi:
+        match args.compression:
+            case 'standard':
+                index_instance = SPIMIIndex(data_dir = 'collection', \
+                                            postings_encoding = StandardPostings, \
+                                            output_dir = 'index')
+            case 'vbe':
+                index_instance = SPIMIIndex(data_dir = 'collection', \
+                                            postings_encoding = VBEPostings, \
+                                            output_dir = 'index')
+            case 'optpfor':
+                index_instance = SPIMIIndex(data_dir = 'collection', \
+                                            postings_encoding = OptPForDeltaPostings, \
+                                            output_dir = 'index')
+            case 'bp128':
+                index_instance = SPIMIIndex(data_dir = 'collection', \
+                                            postings_encoding = BP128Postings, \
+                                            output_dir = 'index')
+    else:
+        match args.compression:
+            case 'standard':
+                index_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = StandardPostings, \
+                                        output_dir = 'index')
+            case 'vbe':
+                index_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = VBEPostings, \
+                                        output_dir = 'index')
+            case 'optpfor':
+                index_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = OptPForDeltaPostings, \
+                                        output_dir = 'index')
+            case 'bp128':
+                index_instance = BSBIIndex(data_dir = 'collection', \
+                                        postings_encoding = BP128Postings, \
+                                        output_dir = 'index')
             
     queries = ["alkylated with radioactive iodoacetate", \
                "psychodrama for disturbed children", \
@@ -41,26 +62,26 @@ if __name__ == '__main__':
         if args.scoring == 'bm25':
             if args.verbose:
                 start_time = time.time()
-                results = BSBI_instance.retrieve_bm25(query, k = 10, verbose=True)
+                results = index_instance.retrieve_bm25(query, k = 10, verbose=True)
                 end_time = time.time()
                 print("Waktu proses retrieval: {:.6f} detik".format(end_time - start_time))
             else:
-                results = BSBI_instance.retrieve_bm25(query, k = 10)
+                results = index_instance.retrieve_bm25(query, k = 10)
         elif args.scoring == 'tf-idf':
             if args.verbose:
                 start_time = time.time()
-                results = BSBI_instance.retrieve_tfidf(query, k = 10)
+                results = index_instance.retrieve_tfidf(query, k = 10)
                 end_time = time.time()
                 print("Waktu proses retrieval: {:.6f} detik".format(end_time - start_time))
-            results = BSBI_instance.retrieve_tfidf(query, k = 10)
+            results = index_instance.retrieve_tfidf(query, k = 10)
         elif args.scoring == 'bm25-wand':
             if args.verbose:
                 start_time = time.time()
-                results = BSBI_instance.retrieve_bm25_wand(query, k = 10, verbose=True)
+                results = index_instance.retrieve_bm25_wand(query, k = 10, verbose=True)
                 end_time = time.time()
                 print("Waktu proses retrieval: {:.6f} detik".format(end_time - start_time))
             else:
-                results = BSBI_instance.retrieve_bm25_wand(query, k = 10)
+                results = index_instance.retrieve_bm25_wand(query, k = 10)
 
         print(f"Results ({args.scoring.upper()}):")
         for (score, doc) in results:

@@ -2,6 +2,7 @@ import re
 import math
 import argparse
 from bsbi import BSBIIndex
+from spimi import SPIMIIndex
 from compression import StandardPostings, VBEPostings, OptPForDeltaPostings, BP128Postings
 
 ######## >>>>> sebuah IR metric: RBP p = 0.8
@@ -126,7 +127,7 @@ def load_qrels(qrel_file = "qrels.txt", max_q_id = 30, max_doc_id = 1033):
 
 ######## >>>>> EVALUASI !
 
-def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scoring_method = "tfidf", BSBI_instance = None):
+def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scoring_method = "tfidf", index_instance = None):
   """ 
     loop ke semua 30 query, hitung score di setiap query,
     lalu hitung MEAN SCORE over those 30 queries.
@@ -143,15 +144,15 @@ def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scori
       # yang tertera di qrels
       ranking = []
       if scoring_method == "tf-idf":
-        for (score, doc) in BSBI_instance.retrieve_tfidf(query, k = k):
+        for (score, doc) in index_instance.retrieve_tfidf(query, k = k):
             did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
             ranking.append(qrels[qid][did])
       elif scoring_method == "bm25":
-        for (score, doc) in BSBI_instance.retrieve_bm25(query, k = k):
+        for (score, doc) in index_instance.retrieve_bm25(query, k = k):
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
       elif scoring_method == "bm25-wand":
-        for (score, doc) in BSBI_instance.retrieve_bm25_wand(query, k = k):
+        for (score, doc) in index_instance.retrieve_bm25_wand(query, k = k):
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
 
@@ -173,6 +174,7 @@ if __name__ == '__main__':
   parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand'], default='tf-idf',
                       help='Pilih metode scoring (tf-idf, bm25, atau bm25-wand)')
   parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
+  parser.add_argument('--spimi', action='store_true', help='Gunakan SPIMI untuk indexing')
   args = parser.parse_args()
 
   qrels = load_qrels()
@@ -180,22 +182,41 @@ if __name__ == '__main__':
   assert qrels["Q1"][166] == 1, "qrels salah"
   assert qrels["Q1"][300] == 0, "qrels salah"
 
-  match args.compression:
-    case 'standard':
-        BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                postings_encoding = StandardPostings, \
-                                output_dir = 'index')
-    case 'vbe':
-        BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                postings_encoding = VBEPostings, \
-                                output_dir = 'index')
-    case 'optpfor':
-        BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                postings_encoding = OptPForDeltaPostings, \
-                                output_dir = 'index')
-    case 'bp128':
-        BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                                postings_encoding = BP128Postings, \
-                                output_dir = 'index')
+  if args.spimi:
+    match args.compression:
+      case 'standard':
+          index_instance = SPIMIIndex(data_dir = 'collection', \
+                                    postings_encoding = StandardPostings, \
+                                    output_dir = 'index')
+      case 'vbe':
+          index_instance = SPIMIIndex(data_dir = 'collection', \
+                                    postings_encoding = VBEPostings, \
+                                    output_dir = 'index')
+      case 'optpfor':
+          index_instance = SPIMIIndex(data_dir = 'collection', \
+                                    postings_encoding = OptPForDeltaPostings, \
+                                    output_dir = 'index')
+      case 'bp128':
+          index_instance = SPIMIIndex(data_dir = 'collection', \
+                                    postings_encoding = BP128Postings, \
+                                    output_dir = 'index')
+  else:
+    match args.compression:
+      case 'standard':
+          index_instance = BSBIIndex(data_dir = 'collection', \
+                                  postings_encoding = StandardPostings, \
+                                  output_dir = 'index')
+      case 'vbe':
+          index_instance = BSBIIndex(data_dir = 'collection', \
+                                  postings_encoding = VBEPostings, \
+                                  output_dir = 'index')
+      case 'optpfor':
+          index_instance = BSBIIndex(data_dir = 'collection', \
+                                  postings_encoding = OptPForDeltaPostings, \
+                                  output_dir = 'index')
+      case 'bp128':
+          index_instance = BSBIIndex(data_dir = 'collection', \
+                                  postings_encoding = BP128Postings, \
+                                  output_dir = 'index')
 
-  eval(qrels, eval_metric = args.eval, scoring_method = args.scoring, BSBI_instance = BSBI_instance)
+  eval(qrels, eval_metric = args.eval, scoring_method = args.scoring, index_instance = index_instance)
