@@ -11,6 +11,7 @@ if __name__ == '__main__':
     parser.add_argument('--verbose', action='store_true', help='Tampilkan informasi jumlah dokumen yang dievaluasi dan waktu proses retrieval')
     parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
     parser.add_argument('--spimi', action='store_true', help='Gunakan indexing SPIMI untuk retrieval')
+    parser.add_argument('--query', type=str, help='Query yang ingin diretrieve')
     args = parser.parse_args()
 
     # sebelumnya sudah dilakukan indexing
@@ -56,6 +57,9 @@ if __name__ == '__main__':
                "psychodrama for disturbed children", \
                "lipid metabolism in toxemia and normal pregnancy"]
                
+    if args.query:
+        queries = [args.query]
+
     for query in queries:
         print("Query  : ", query)
         
