@@ -3,6 +3,7 @@ import math
 import argparse
 from bsbi import BSBIIndex
 from spimi import SPIMIIndex
+from lsi import LSIIndex
 from compression import StandardPostings, VBEPostings, OptPForDeltaPostings, BP128Postings
 
 ######## >>>>> sebuah IR metric: RBP p = 0.8
@@ -155,6 +156,10 @@ def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scori
         for (score, doc) in index_instance.retrieve_bm25_wand(query, k = k):
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
+      elif scoring_method == "lsi":
+        for (score, doc) in index_instance.retrieve(query, k = k):
+          did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
+          ranking.append(qrels[qid][did])
 
       if eval_metric == "rbp":
         eval_scores.append(rbp(ranking))
@@ -171,8 +176,8 @@ def eval(qrels, query_file = "queries.txt", k = 1000, eval_metric = "rbp", scori
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Evaluasi IR system')
   parser.add_argument('--eval', action='store', help='Pilih metric evaluasi: rbp, dcg, ndcg, ap', default='rbp')
-  parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand'], default='tf-idf',
-                      help='Pilih metode scoring (tf-idf, bm25, atau bm25-wand)')
+  parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand', 'lsi'], default='tf-idf',
+                      help='Pilih metode scoring (tf-idf, bm25, bm25-wand, atau lsi)')
   parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
   parser.add_argument('--spimi', action='store_true', help='Gunakan SPIMI untuk indexing')
   args = parser.parse_args()
@@ -182,7 +187,10 @@ if __name__ == '__main__':
   assert qrels["Q1"][166] == 1, "qrels salah"
   assert qrels["Q1"][300] == 0, "qrels salah"
 
-  if args.spimi:
+  if args.scoring == 'lsi':
+      index_instance = LSIIndex(data_dir='collection', output_dir='index', latent_dim=100)
+      index_instance.load()
+  elif args.spimi:
     match args.compression:
       case 'standard':
           index_instance = SPIMIIndex(data_dir = 'collection', \

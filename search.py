@@ -2,12 +2,13 @@ import argparse
 import time
 from bsbi import BSBIIndex
 from spimi import SPIMIIndex
+from lsi import LSIIndex
 from compression import StandardPostings, VBEPostings, OptPForDeltaPostings, BP128Postings
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Retrieve dokumen menggunakan TF-IDF atau BM25.')
-    parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand'], default='tf-idf',
-                        help='Pilih metode scoring (tf-idf, bm25, atau bm25-wand)')
+    parser.add_argument('--scoring', type=str, choices=['tf-idf', 'bm25', 'bm25-wand', 'lsi'], default='tf-idf',
+                        help='Pilih metode scoring (tf-idf, bm25, bm25-wand, atau lsi)')
     parser.add_argument('--verbose', action='store_true', help='Tampilkan informasi jumlah dokumen yang dievaluasi dan waktu proses retrieval')
     parser.add_argument('--compression', type=str, default='vbe', choices=['standard', 'vbe', 'optpfor', 'bp128'], help='Metode compression untuk postings list')
     parser.add_argument('--spimi', action='store_true', help='Gunakan indexing SPIMI untuk retrieval')
@@ -16,7 +17,10 @@ if __name__ == '__main__':
 
     # sebelumnya sudah dilakukan indexing
     # BSBIIndex hanya sebagai abstraksi untuk index tersebut
-    if args.spimi:
+    if args.scoring == 'lsi':
+        index_instance = LSIIndex(data_dir='collection', output_dir='index')
+        index_instance.load()
+    elif args.spimi:
         match args.compression:
             case 'standard':
                 index_instance = SPIMIIndex(data_dir = 'collection', \
@@ -86,6 +90,14 @@ if __name__ == '__main__':
                 print("Waktu proses retrieval: {:.6f} detik".format(end_time - start_time))
             else:
                 results = index_instance.retrieve_bm25_wand(query, k = 10)
+        elif args.scoring == 'lsi':
+            if args.verbose:
+                start_time = time.time()
+                results = index_instance.retrieve(query, k = 10)
+                end_time = time.time()
+                print("Waktu proses retrieval: {:.6f} detik".format(end_time - start_time))
+            else:
+                results = index_instance.retrieve(query, k = 10)
 
         print(f"Results ({args.scoring.upper()}):")
         for (score, doc) in results:

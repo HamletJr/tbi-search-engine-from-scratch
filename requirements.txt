@@ -1,3 +1,7 @@
 tqdm
 nltk
 rust-fst
+scikit-learn
+scipy
+faiss-cpu
+numpy
