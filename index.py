@@ -1,5 +1,75 @@
 import pickle
 import os
+import rust_fst
+
+class FSTPostingsDict:
+    """
+    Class ini berfungsi sebagai sebuah dictionary yang memetakan termID ke
+    metadata terkait postings list yang bersesuaian. Metadata tersebut berupa
+    sebuah 4-tuple: (start_position_in_index_file, number_of_postings_in_list,
+                    length_in_bytes_of_postings_list, length_in_bytes_of_tf_list)
+    
+    Menggunakan bantuan library rust-fst untuk menyimpan dan memuat dictionary ini
+    secara efisien dan cepat di disk.
+    """
+    def __init__(self, fst_path=None):
+        self.fst_path = fst_path    # Path untuk menyimpan FST
+        self.fst = None             # FST instance
+        self.data = []              # List untuk menyimpan metadata terkait postings list, di mana index-nya sesuai dengan index pada FST
+        self._temp_dict = {}        # Temporary dictionary untuk menyimpan data sebelum disimpan ke FST
+
+    def __setitem__(self, key, value):
+        """Method Python untuk menyimpan item pada dictionary dengan syntax dict[key] = value
+        Disimpan data pada temp dictionary terlebih dahulu dan disimpan ke FST saat save() dipanggil.
+        """
+        self._temp_dict[key] = value
+
+    def __getitem__(self, key):
+        """Method Python untuk mengakses item pada dictionary dengan syntax dict[key]"""
+        if self.fst is not None:
+            try:
+                idx = self.fst[str(key)]
+                return self.data[idx]
+            except KeyError:
+                raise KeyError(key)
+        else:
+            return self._temp_dict[key]
+
+    def __contains__(self, key):
+        """Method Python untuk mengecek apakah sebuah key ada dalam dictionary dengan syntax key in dict"""
+        if self.fst is not None:
+            return str(key) in self.fst
+        else:
+            return key in self._temp_dict
+
+    def __len__(self):
+        """Method Python untuk mendapatkan banyaknya item dalam dictionary dengan syntax len(dict)"""
+        if self.fst is not None:
+            return len(self.data)
+        else:
+            return len(self._temp_dict)
+
+    def save(self):
+        # Sort key sebelum disimpan ke FST
+        sorted_keys = sorted(self._temp_dict.keys(), key=lambda x: str(x))
+        self.data = []
+        
+        # Membuat iterator untuk memasukkan data ke FST dengan urutan sesuai sorted_keys
+        # Value yang disimpan di FST adalah index dari data yang sesuai dengan key pada sorted_keys
+        def iter_items():
+            for i, k in enumerate(sorted_keys):
+                self.data.append(self._temp_dict[k])
+                yield (str(k), i)
+        
+        # Simpan FST ke disk
+        self.fst = rust_fst.Map.from_iter(iter_items(), path=self.fst_path)
+        self._temp_dict = {}
+
+    def load(self, data):
+        # Memuat data dari FST ke dalam dictionary
+        self.data = data
+        if self.fst_path and os.path.exists(self.fst_path):
+            self.fst = rust_fst.Map(self.fst_path)
 
 class InvertedIndex:
     """
@@ -49,11 +119,12 @@ class InvertedIndex:
 
         self.index_file_path = os.path.join(directory, index_name+'.index')
         self.metadata_file_path = os.path.join(directory, index_name+'.dict')
+        self.fst_file_path = os.path.join(directory, index_name+'.fst')
 
         self.postings_encoding = postings_encoding
         self.directory = directory
 
-        self.postings_dict = {}
+        self.postings_dict = FSTPostingsDict(self.fst_file_path)
         self.terms = []         # Untuk keep track urutan term yang dimasukkan ke index
         self.doc_length = {}    # key: doc ID (int), value: document length (number of tokens)
                                 # Ini nantinya akan berguna untuk normalisasi Score terhadap panjang
@@ -88,14 +159,17 @@ class InvertedIndex:
         with open(self.metadata_file_path, 'rb') as f:
             metadata = pickle.load(f)
             if len(metadata) == 3:
-                self.postings_dict, self.terms, self.doc_length = metadata
+                postings_data, self.terms, self.doc_length = metadata
                 self.avg_doc_length = 0
                 self.term_max_score = {}
             elif len(metadata) == 4:
-                self.postings_dict, self.terms, self.doc_length, self.avg_doc_length = metadata
+                postings_data, self.terms, self.doc_length, self.avg_doc_length = metadata
                 self.term_max_score = {}
             else:
-                self.postings_dict, self.terms, self.doc_length, self.avg_doc_length, self.term_max_score = metadata
+                postings_data, self.terms, self.doc_length, self.avg_doc_length, self.term_max_score = metadata
+            
+            # Memuat FST ke dalam postings_dict
+            self.postings_dict.load(postings_data)
             self.term_iter = self.terms.__iter__()
 
         return self
@@ -105,9 +179,14 @@ class InvertedIndex:
         # Menutup index file
         self.index_file.close()
 
+        # Menyimpan FST kalau belum disimpan
+        if self.postings_dict.fst is None:
+            self.postings_dict.save()
+        postings_data = self.postings_dict.data
+        
         # Menyimpan metadata (postings dict dan terms) ke file metadata dengan bantuan pickle
         with open(self.metadata_file_path, 'wb') as f:
-            pickle.dump([self.postings_dict, self.terms, self.doc_length, self.avg_doc_length, self.term_max_score], f)
+            pickle.dump([postings_data, self.terms, self.doc_length, self.avg_doc_length, self.term_max_score], f)
 
 
 class InvertedIndexReader(InvertedIndex):
