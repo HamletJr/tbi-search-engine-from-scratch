@@ -19,9 +19,10 @@ This project implements a basic search engine built from scratch in Python. It i
 - **Compressed Dictionary Terms**:
   - The Term-Postings list dictionary utilizes an efficient **Finite State Transducer (FST)** representation backed by the backend Rust implementation (`rust-fst`). This enables compact dictionary sizes and fast disk-read retrieval without inflating main memory usage.
 - **Information Retrieval Scoring Frameworks**:
-  - **TF-IDF Model**: 
+  - **TF-IDF Model**
   - **BM25 Probabilistic Model**
   - **Optimized BM25-WAND (Weak AND)**: The maximum BM25 score per term is precomputed during merge-time to implement the WAND algorithm. This allows efficient pruning for document evaluations on top-k retrieval, improving latency heavily on large collections.
+  - **LSI-based Retrieval with FAISS**: Uses cosine similarity between the query vector and document vectors in the reduced latent semantic space for retrieval.
 - **Evaluation Functions**:
   - Generates metrics for various retrieval schemes such as Rank Biased Precision (RBP), (Normalized) Discounted Cumulative Gain (DCG/NDCG), and Mean Average Precision (MAP).
 
