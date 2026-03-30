@@ -144,7 +144,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Bangun LSI Index')
     parser.add_argument('--k', type=int, default=100, help='Jumlah latent dimensions untuk LSI')
     args = parser.parse_args()
-
+    
+    nltk.download('stopwords', quiet=True)
+    nltk.download('punkt_tab', quiet=True)
+    
     index = LSIIndex(data_dir='collection', output_dir='index', latent_dim=args.k)
     index.build_index()
     index.save()
